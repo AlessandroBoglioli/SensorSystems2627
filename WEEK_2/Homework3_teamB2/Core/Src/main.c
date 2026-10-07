@@ -18,7 +18,10 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32_hal_legacy.h"
+#include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_tim.h"
+#include <stdint.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -32,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MUSICLENGTH 64
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -43,9 +46,18 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
-
 UART_HandleTypeDef huart2;
 
+int notes_frequencies[MUSICLENGTH] = {392, 392, 392, 440, 392, 392, 349, 349,
+                             330, 330, 349, 349, 392, 392, 392, 392,
+                             294, 294, 330, 330, 349, 349, 349, 349,
+                             330, 330,  349, 349, 392, 392, 392, 392,
+                             392, 392, 392, 440, 392, 392, 349, 349,
+                             330, 330, 349, 349, 392, 392, 392, 392,
+                             294, 294, 294, 294, 392, 392, 392, 392,
+                             330, 330, 262, 262, 262, 262, 262, 262};
+int note_index = 0;
+int is_playing;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -53,22 +65,52 @@ UART_HandleTypeDef huart2;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-  if (htim == &htim2){
-    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
-    HAL_TIM_Base_Stop_IT(&htim2);
-  }
-}
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+uint16_t getPeriod(){
+  return 84000 / notes_frequencies[note_index];
+}
+
+uint16_t getPulseValue(){
+  return 84000 / (notes_frequencies[note_index] * 2);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+  if (htim == &htim2){
+    if (note_index < MUSICLENGTH){
+      note_index++;
+      //Change period to next note
+      __HAL_TIM_SetAutoreload(&htim1, getPeriod());
+      //Change pulse
+      __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, getPulseValue());
+    } else {
+      HAL_TIM_Base_Stop_IT(&htim2);
+      HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+      note_index = 0;
+      is_playing = 0;
+    }
+  }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+  if (GPIO_Pin == GPIO_PIN_8 && !is_playing){
+    //Set the first note
+    //Change period to next note
+    __HAL_TIM_SetAutoreload(&htim1, getPeriod());
+    //Change pulse
+    __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, getPulseValue());
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+    HAL_TIM_Base_Start_IT(&htim2);
+    is_playing = 1;
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -101,18 +143,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   // Making sure that the counter is 0
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   __HAL_TIM_CLEAR_IT(&htim2, TIM_IT_UPDATE);
-
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_Base_Start_IT(&htim2);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -193,9 +231,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 100-1;
+  htim1.Init.Prescaler = 1000 -1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 1909-1;
+  htim1.Init.Period = 214 -1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -219,7 +257,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 954-1;
+  sConfigOC.Pulse = 107 -1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -268,7 +306,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 8400-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 30000;
+  htim2.Init.Period = 2500-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -358,6 +396,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
