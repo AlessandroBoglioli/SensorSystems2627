@@ -18,11 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32_hal_legacy.h"
-#include "stm32f4xx_hal_gpio.h"
-#include "stm32f4xx_hal_tim.h"
-#include <stdint.h>
-#include <sys/_intsup.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -51,6 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -98,9 +94,10 @@ static void MX_USART2_UART_Init(void);
 // pulse = clock_freq / prescaler / note_freq / 2
 void initialize_notes(){
 
-  uint32_t raw_period = CLOCK_FREQ / PRESCALE / notes_frequencies[i];
+  uint32_t raw_period = 0;
 
   for (int i = 0; i < MUSICLENGTH; i++){
+    raw_period = (uint32_t) (CLOCK_FREQ / PRESCALE / notes_frequencies[i]);
     notes[i].period = (uint16_t) (raw_period - 1);
     notes[i].pulse = (uint16_t) (raw_period / 2);
   }
@@ -113,6 +110,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     // Next index
     note_index++;
     if (note_index < MUSICLENGTH){      
+
+      // If the current counter is higher or equal of the next period that we want to set:
+      // reset the counter to 0, this to ensure no skipping notes
+      if (__HAL_TIM_GET_COUNTER(&htim1) >= notes[note_index].period)
+        __HAL_TIM_SET_COUNTER(&htim1, 0);
+
       //Change period and pulse to next note
       __HAL_TIM_SetAutoreload(&htim1, notes[note_index].period);
       __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, notes[note_index].pulse);
@@ -276,7 +279,7 @@ static void MX_TIM1_Init(void)
   htim1.Init.Period = 214 -1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
@@ -307,6 +310,7 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  __HAL_TIM_DISABLE_OCxPRELOAD(&htim1, TIM_CHANNEL_2);
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
