@@ -22,6 +22,7 @@
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_tim.h"
 #include <stdint.h>
+#include <sys/_intsup.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -35,7 +36,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 #define MUSICLENGTH 64
+#define CLOCK_FREQ 84000000U
+#define PRESCALE 1000U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,17 +53,30 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
-int notes_frequencies[MUSICLENGTH] = {392, 392, 392, 440, 392, 392, 349, 349,
-                             330, 330, 349, 349, 392, 392, 392, 392,
-                             294, 294, 330, 330, 349, 349, 349, 349,
-                             330, 330,  349, 349, 392, 392, 392, 392,
-                             392, 392, 392, 440, 392, 392, 349, 349,
-                             330, 330, 349, 349, 392, 392, 392, 392,
-                             294, 294, 294, 294, 392, 392, 392, 392,
-                             330, 330, 262, 262, 262, 262, 262, 262};
-int note_index = 0;
-int is_playing;
 /* USER CODE BEGIN PV */
+
+struct note {
+  uint16_t period;
+  uint16_t pulse; 
+};
+
+// Struct containing each note's period and pulse
+struct note notes[MUSICLENGTH];
+
+// Frequencies of the 1/8 notes that should play the London's bridge song
+// From the notes we got the realtive frequencies
+int notes_frequencies[MUSICLENGTH] = {392, 392, 392, 440, 392, 392, 349, 349,
+                                      330, 330, 349, 349, 392, 392, 392, 392,
+                                      294, 294, 330, 330, 349, 349, 349, 349,
+                                      330, 330,  349, 349, 392, 392, 392, 392,
+                                      392, 392, 392, 440, 392, 392, 349, 349,
+                                      330, 330, 349, 349, 392, 392, 392, 392,
+                                      294, 294, 294, 294, 392, 392, 392, 392,
+                                      330, 330, 262, 262, 262, 262, 262, 262};
+
+// Auxiliary varibles for the execution
+volatile int note_index = 0;
+volatile int is_playing = 0;
 
 /* USER CODE END PV */
 
@@ -74,23 +92,32 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint16_t getPeriod(){
-  return 84000 / notes_frequencies[note_index];
+
+// Initializing struct notes by appling this formula to all the notes:
+// period = (clock_freq / prescaler / note_freq) - 1 to account that the count starts at 0
+// pulse = clock_freq / prescaler / note_freq / 2
+void initialize_notes(){
+
+  uint32_t raw_period = CLOCK_FREQ / PRESCALE / notes_frequencies[i];
+
+  for (int i = 0; i < MUSICLENGTH; i++){
+    notes[i].period = (uint16_t) (raw_period - 1);
+    notes[i].pulse = (uint16_t) (raw_period / 2);
+  }
 }
 
-uint16_t getPulseValue(){
-  return 84000 / (notes_frequencies[note_index] * 2);
-}
-
+// Interuppt caused by the 1/8 notes timer,
+// we change note if there are still some
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   if (htim == &htim2){
-    if (note_index < MUSICLENGTH){
-      note_index++;
-      //Change period to next note
-      __HAL_TIM_SetAutoreload(&htim1, getPeriod());
-      //Change pulse
-      __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, getPulseValue());
+    // Next index
+    note_index++;
+    if (note_index < MUSICLENGTH){      
+      //Change period and pulse to next note
+      __HAL_TIM_SetAutoreload(&htim1, notes[note_index].period);
+      __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, notes[note_index].pulse);
     } else {
+      // We finished the notes to play, stop timers and reset varibles
       HAL_TIM_Base_Stop_IT(&htim2);
       HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
       note_index = 0;
@@ -99,16 +126,25 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   }
 }
 
+// Interrupt caused by the microphone after registering a loud noise
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+  // is_playing is used both as a checker if we are already playing and as a software debouncer
   if (GPIO_Pin == GPIO_PIN_8 && !is_playing){
+    is_playing = 1;
+    note_index = 0;
     //Set the first note
-    //Change period to next note
-    __HAL_TIM_SetAutoreload(&htim1, getPeriod());
-    //Change pulse
-    __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, getPulseValue());
+    //Change period and pulse of first note
+    __HAL_TIM_SetAutoreload(&htim1, notes[note_index].period);
+    __HAL_TIM_SetCompare(&htim1, TIM_CHANNEL_2, notes[note_index].pulse);
+
+    // Making sure that the counter is 0
+    __HAL_TIM_SET_COUNTER(&htim1, 0); 
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    __HAL_TIM_CLEAR_IT(&htim2, TIM_IT_UPDATE);
+
+    // Starting timers  
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
     HAL_TIM_Base_Start_IT(&htim2);
-    is_playing = 1;
   }
 }
 
@@ -148,9 +184,13 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  // Initializing the notes struct with the period and pulse for each note
+  initialize_notes();
+
   // Making sure that the counter is 0
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   __HAL_TIM_CLEAR_IT(&htim2, TIM_IT_UPDATE);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -236,7 +276,7 @@ static void MX_TIM1_Init(void)
   htim1.Init.Period = 214 -1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
