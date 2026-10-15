@@ -111,7 +111,7 @@ int main(void)
   __HAL_TIM_CLEAR_IT(&htim2, TIM_IT_UPDATE);
 
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_Base_Start_IT(&htim2);
 
   /* USER CODE END 2 */
 
