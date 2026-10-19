@@ -65,7 +65,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
   if (htim == &htim2){
     lcd_clear();
     lcd_println(names[nindex], 0);
-    nindex = nindex < 5 ? nindex + 1 : 0;
+    nindex = nindex < 4 ? nindex + 1 : 0;
     lcd_println(names[nindex], 1);
   }
 }
